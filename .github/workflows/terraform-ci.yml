@@ -1,103 +1,101 @@
-name: Terraform CI
+name: Smart Terraform Module CI
 
 on:
-  # 1. Run on every push to your feature branch
   push:
     branches:
+      - main
       - test/terraform
     paths:
       - 'terraform/**'
-      - 'tests/unit/test_terraform/**'
-      - 'tests/integration/test_terraform/**'
-      - '**.tf'
       - '.github/workflows/terraform-ci.yml'
-
-  # 2. Run when you open a PR targeting main
   pull_request:
     branches:
       - main
     paths:
-      - 'terraform/**'
-      - 'tests/unit/test_terraform/**'
-      - 'tests/integration/test_terraform/**'
-      - '**.tf'
       - '.github/workflows/terraform-ci.yml'
 
 env:
+  AWS_REGION: "ap-south-1"
 
-  AWS_REGION : "ap-south-1" #Change to reflect your Region
-
-# Permission can be added at job level or workflow level
 permissions:
-      id-token: write   # This is required for requesting the JWT
-      contents: read    # This is required for actions/checkout
+  id-token: write
+  contents: read
 
 jobs:
-  terraform-ci:
-    name: Run Terraform CI Pipeline
+  # Job 1: Detect which modules have changes
+  detect-changes:
+    name: Detect Changed Modules
     runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.filter.outputs.changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
+      # This action checks which folders inside 'modules/' were modified
+      - name: Check file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # Define your list of modules here as filters dynamically or explicitly
+          # Example assumes you have folders like modules/s3-bucket, modules/vpc, etc.
+          filters: |
+            terraform/modules/s3_bucket:
+              - 'terraform/modules/s3_bucket/**'
+
+  # Job 2: Run tests ONLY for the modules identified as changed
+  test-modules:
+    name: Test Module (${{ matrix.module }})
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: ${{ needs.detect-changes.outputs.modules != '[]' && needs.detect-changes.outputs.modules != '' }}
+
+    # Only run this job if changes were detected, and create a matrix of those changed modules
     strategy:
+      fail-fast: false
       matrix:
-        env: [dev, staging, prod]
+        module: ${{ fromJson(needs.detect-changes.outputs.modules) }}
 
     defaults:
       run:
-        working-directory: terraform/environments/${{ matrix.env }}
+        working-directory: ${{ matrix.module }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: configure aws credentials
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }} #change to reflect your IAM role’s ARN
-          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          role-session-name: GitHub_to_AWS_Module_CI
           aws-region: ${{ env.AWS_REGION }}
-
-      # - name: Debug paths
-      #   run: |
-      #     echo "PWD: $(pwd)"
-      #     echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-      #     ls -R
-
-      - name: Show environment
-        run: echo "Running for ${{ matrix.env }}"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: 1.10.0   # pin version (important for consistency)
+          terraform_version: 1.10.0
 
-      # Install and setup uv package manager
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "**/requirements*.txt" # Adjust if you use pyproject.toml / uv.lock
+          cache-dependency-glob: "**/requirements*.txt"
 
-      # Setup Python (for pytest + tftest)
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
-      # Blazing fast package installation using uv
       - name: Install dependencies
         run: |
           uv pip install --system pytest tftest
 
       - name: Terraform Format Check
-        run: terraform fmt -check -recursive
+        run: terraform fmt -check
 
       - name: Terraform Init
-        run: |
-          if [ "${{ matrix.env }}" == "dev" ]; then
-            terraform init -backend=false
-          else
-            terraform init
-          fi
+        run: terraform init -backend=false
 
       - name: Terraform Validate
         run: terraform validate
@@ -108,16 +106,15 @@ jobs:
       - name: Run TFLint
         run: |
           tflint --init
-          tflint --recursive
+          tflint
 
-      # Terraform Plan (NO APPLY)
-      - name: Terraform Plan
-        run: terraform plan -input=false
+      # Run Unit Tests inside the changed module's directory
+      - name: Run Unit Tests (pytest)
+        if: hashFiles(format('{0}/tests/unit/**', matrix.module)) != ''
+        run: pytest tests/unit
 
-      # Run Unit Tests (pytest)
-      - name: Run pytest (unit)
-        run: pytest ../../../tests/unit/test_terraform
 
-      # Run Integration Tests (tftest with mocks)
-      - name: Run tftest (integration)
-        run: pytest ../../../tests/integration/test_terraform
+      # Run Integration Tests inside the changed module's directory
+      - name: Run Integration Tests (tftest)
+        if: hashFiles(format('{0}/tests/integration/**', matrix.module)) != ''
+        run: pytest tests/integration
