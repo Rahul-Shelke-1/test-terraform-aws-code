@@ -231,15 +231,8 @@ nav:
 
   - CI/CD:
       - Overview: 08-cicd/overview.md
-      - Github Actions: 08-cicd/github-actions.md
-
       - Infrastructure Delivery: 08-cicd/infrastructure-delivery.md
       - Application Delivery: 08-cicd/application-delivery.md
-      - ML Delivery: 08-cicd/ml-delivery.md
-      - Deployment: 08-cicd/deployment.md
-
-      - Release Strategy: 08-cicd/release-strategy.md
-      - Rollback: 08-cicd/rollback-strategy.md
       - Secrets Management: 08-cicd/secrets-management.md
       - OIDC: 08-cicd/oidc-authentication.md
 
