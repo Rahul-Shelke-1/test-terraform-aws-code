@@ -30,7 +30,7 @@ Notice we're **testing module behavior**, not AWS itself.
 ## Command to run test
 
 ```bash
-uv run --env-file .env pytest terraform/modules/s3_bucket/unit/
+uv run --env-file .env pytest terraform/modules/s3_bucket/tests/unit/
 ```
 
 ---
