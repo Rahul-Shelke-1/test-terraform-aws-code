@@ -16,11 +16,13 @@ repos:
         # Removed the 'files' line to let recursive mode handle it
         args:
           - --args=-recursive # Force scanning of all subfolders
+          - --hook-config=--tf-path=tofu
       - id: terraform_validate  # Checks for syntax and logic errors
         # This tells the hook to look into the terraform folder specifically
         args:
           - --args=-json
           - --init-args=-backend=false
+          - --hook-config=--tf-path=tofu
           - --hook-config=--retry-once-with-cleanup=true
       - id: terraform_tflint    # Lints for provider-specific issues
         args:
